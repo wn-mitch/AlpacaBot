@@ -222,6 +222,7 @@ describe("/bcp interactions", () => {
 
   it("posts a signed-in army list in sections in a thread on the public reply", async () => {
     const { keys, interactionEnv } = await setup();
+    await seedClaim("discord-ken", "ken", "Ken Edwards");
     await env.DB.prepare("INSERT INTO bcp_auth VALUES ('access', 'bcp-token', ?)").bind(Date.now() + 3_600_000).run();
     const listText = Array.from({ length: 12 }, (_, i) => `Unit ${i}\n${"x".repeat(300)}`).join("\n\n");
     const calls: [string, RequestInit | undefined][] = [];
@@ -231,13 +232,13 @@ describe("/bcp interactions", () => {
       if (url.endsWith("/v1/events/EVT1")) return json({ name: "Whole Hog GT", eventDate: "2026-12-05T14:00:00Z", hideLists: false });
       if (url.endsWith("/v1/armylists/LIST1")) return json({ armyListText: listText });
       if (url.includes("/messages/@original")) return json({ id: "reply-msg" });
-      if (url.endsWith("/channels/chan/messages/reply-msg/threads")) return json({ id: "thread" });
+      if (url.endsWith("/channels/event-discussion/messages/reply-msg/threads")) return json({ id: "thread" });
       if (url.endsWith("/channels/thread/messages")) return json({ id: "section" });
       throw new Error(`unexpected ${url}`);
     }));
 
     const response = await send(keys, interactionEnv, {
-      type: 2, token: "tok", application_id: "app", channel_id: "chan", member: { user: { id: "someone" }, permissions: "0" },
+      type: 2, token: "tok", application_id: "app", channel_id: "event-discussion", member: { user: { id: "discord-ken" }, permissions: "0" },
       data: { name: "bcp", options: [{ name: "list", options: [{ name: "player", value: "EVT1:ken" }] }] },
     });
     vi.unstubAllGlobals();
@@ -250,6 +251,27 @@ describe("/bcp interactions", () => {
     expect(sections.every((section) => section.length <= 2_000 && section.startsWith("```"))).toBe(true);
     // Every unit lands whole in exactly one section, in order.
     expect(sections.join("").match(/Unit \d+/g)).toEqual(Array.from({ length: 12 }, (_, i) => `Unit ${i}`));
+  });
+
+  it("tells unclaimed members to claim first, and keeps public commands in the BCP channel", async () => {
+    const { keys, interactionEnv } = await setup();
+    const circuit = (discordId: string, channel: string) => ({
+      type: 2, token: "t", application_id: "app", channel_id: channel, member: { user: { id: discordId }, permissions: "0" },
+      data: { name: "bcp", options: [{ name: "circuit" }] },
+    });
+    const body = async (r: Response) => (await r.json<{ data: { content: string; flags: number } }>()).data;
+
+    const unclaimed = await body(await send(keys, interactionEnv, circuit("newbie", "event-discussion")));
+    expect(unclaimed.flags).toBe(64);
+    expect(unclaimed.content).toContain("<@newbie>");
+    expect(unclaimed.content).toContain("/bcp claim");
+
+    await seedClaim("discord-ken", "ken", "Ken Edwards");
+    const elsewhere = await body(await send(keys, interactionEnv, circuit("discord-ken", "general")));
+    expect(elsewhere).toMatchObject({ flags: 64, content: "Use `/bcp circuit` in <#event-discussion>." });
+    const here = await body(await send(keys, interactionEnv, circuit("discord-ken", "event-discussion")));
+    expect(here.flags).toBe(0);
+    expect(here.content).toContain("SCD Circuit");
   });
 
   it("lists every /bcp command privately", async () => {

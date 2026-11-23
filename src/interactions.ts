@@ -224,6 +224,10 @@ async function circuit(env: Env, sub: Option): Promise<Response> {
   return reply(circuitMessage(season, await circuitStandings(env, season)));
 }
 
+// Commands anyone can run before claiming, and commands that post publicly.
+const claimFree = new Set(["claim", "unclaim", "help"]);
+const publicCommands = new Set(["events", "list", "circuit"]);
+
 export async function handleInteraction(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
   const body = await request.text();
   if (!env.DISCORD_PUBLIC_KEY || !(await verifySignature(request, body, env.DISCORD_PUBLIC_KEY))) {
@@ -236,6 +240,13 @@ export async function handleInteraction(request: Request, env: Env, ctx: Executi
   if (interaction.type === 4 && sub.name === "claim") return autocomplete(env, sub);
   if (interaction.type === 4 && sub.name === "list") return listAutocomplete(env, sub);
   if (interaction.type !== 2) return new Response(null, { status: 400 });
+  if (!claimFree.has(sub.name)) {
+    const claimed = await env.DB.prepare("SELECT 1 FROM bcp_claims WHERE discord_user_id = ?").bind(userId(interaction)).first();
+    if (!claimed) return reply(`<@${userId(interaction)}> link your BCP name first: run \`/bcp claim\` and pick yourself.`, ephemeral);
+  }
+  if (publicCommands.has(sub.name) && env.BCP_CHANNEL_ID && interaction.channel_id !== env.BCP_CHANNEL_ID) {
+    return reply(`Use \`/bcp ${sub.name}\` in <#${env.BCP_CHANNEL_ID}>.`, ephemeral);
+  }
   switch (sub.name) {
     case "claim": return claim(env, interaction, sub);
     case "unclaim": return unclaim(env, interaction, sub);
