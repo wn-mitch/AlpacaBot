@@ -196,10 +196,10 @@ async function events(env: Env): Promise<Response> {
   const lines = results.map((row) => {
     const when = `<t:${Math.floor(Date.parse(row.starts_at) / 1000)}:D>`;
     // Names, not mentions, so listing events never pings anyone.
-    const members = row.members ? row.members.split("|").sort().map(discordText).join(", ") : "no claimed members yet";
-    return `- **[${discordText(row.name)}](<${bcpEventUrl(row.bcp_id)}>)** · ${when}\n  - Signed up: ${members}`;
+    const members = row.members ? row.members.split("|").sort().map((name) => `- ${discordText(name)}`).join("\n") : "No claimed members yet.";
+    return `**[${discordText(row.name)}](<${bcpEventUrl(row.bcp_id)}>)** · ${when}\n${members}`;
   });
-  return reply(`**Upcoming SCD events**\nRegister on BCP, then use \`/bcp claim\` once so the bot knows you.\n\n${lines.join("\n")}`.slice(0, 2_000));
+  return reply(`**Upcoming SCD events**\nRegister on BCP, then use \`/bcp claim\` once so the bot knows you.\n\n${lines.join("\n\n")}`.slice(0, 2_000));
 }
 
 async function track(env: Env, interaction: Interaction, sub: Option, ctx: ExecutionContext): Promise<Response> {

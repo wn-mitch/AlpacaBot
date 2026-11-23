@@ -274,7 +274,7 @@ describe("/bcp interactions", () => {
     expect(here.content).toContain("SCD Circuit");
   });
 
-  it("lists upcoming events as bullets with member names, not mentions", async () => {
+  it("lists each event with its members as bullets, by name not mention", async () => {
     const { keys, interactionEnv } = await setup();
     await seedClaim("discord-ken", "ken", "Ken Edwards");
     const response = await send(keys, interactionEnv, {
@@ -282,8 +282,7 @@ describe("/bcp interactions", () => {
       data: { name: "bcp", options: [{ name: "events" }] },
     });
     const { content } = (await response.json<{ data: { content: string } }>()).data;
-    expect(content).toContain("- **[Whole Hog GT]");
-    expect(content).toContain("  - Signed up: Ken Edwards");
+    expect(content).toMatch(/\*\*\[Whole Hog GT\]\(<[^>]+>\)\*\* · <t:\d+:D>\n- Ken Edwards/);
     expect(content).not.toMatch(/<@\d*\w*>/);
   });
 
