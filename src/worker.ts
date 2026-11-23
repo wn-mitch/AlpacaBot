@@ -3,6 +3,8 @@ import { FantasyLedger } from "./fantasy-ledger";
 import { fantasyReportFor, runFantasyReport } from "./fantasy";
 import { postAttendanceRollup, postEvent, type PostedMessage } from "./discord";
 import { actionFor, type Env, type ScheduledAction } from "./events";
+import { runBcp } from "./bcp-bot";
+import { handleInteraction } from "./interactions";
 
 export { AttendanceLedger, FantasyLedger };
 
@@ -82,7 +84,10 @@ async function runAction(action: ScheduledAction, env: Env): Promise<void> {
 }
 
 export default {
-  fetch(): Response {
+  fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> | Response {
+    if (request.method === "POST" && new URL(request.url).pathname === "/interactions") {
+      return handleInteraction(request, env, ctx);
+    }
     return new Response("Not found", { status: 404 });
   },
   scheduled(controller: ScheduledController, env: Env, ctx: ExecutionContext): void {
@@ -91,6 +96,7 @@ export default {
     if (action) jobs.push(runAction(action, env));
     const fantasyAction = fantasyReportFor(controller.scheduledTime);
     if (fantasyAction) jobs.push(runFantasyReport(fantasyAction, env));
+    jobs.push(runBcp(controller.scheduledTime, env));
     if (jobs.length) ctx.waitUntil(Promise.all(jobs).then(() => undefined));
   },
 } satisfies ExportedHandler<Env>;

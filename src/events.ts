@@ -13,6 +13,12 @@ export interface Env {
   SLEEPER_LEAGUE_ID: string;
   FANTASY_LEDGER: DurableObjectNamespace;
   AI: Ai;
+  DB: D1Database;
+  DISCORD_PUBLIC_KEY?: string;
+  SCD_GUILD_ID?: string;
+  BCP_CHANNEL_ID?: string;
+  BCP_ALERT_CHANNEL_ID?: string;
+  BCP_REFRESH_TOKEN?: string;
 }
 
 export interface PollResponse {

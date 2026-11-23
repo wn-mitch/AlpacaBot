@@ -4,12 +4,21 @@
   "main": "src/worker.ts",
   "compatibility_date": "2026-08-03",
   "triggers": {
-    "crons": ["0 * * * *"]
+    "crons": ["*/5 * * * *"]
   },
+  "vars": {
+    "SCD_GUILD_ID": "732031881121497148",
+    "BCP_CHANNEL_ID": "951896091136233512",
+    "BCP_ALERT_CHANNEL_ID": "1446494413315506186"
+  },
+  "keep_vars": true,
   "ai": {
     "binding": "AI",
     "remote": true
   },
+  "d1_databases": [
+    { "binding": "DB", "database_name": "alpacabot-bcp", "database_id": "16b2a587-b1f0-4f9a-815e-2dfee79e8e1b", "migrations_dir": "migrations" }
+  ],
   "durable_objects": {
     "bindings": [
       { "name": "ATTENDANCE_LEDGER", "class_name": "AttendanceLedger" },

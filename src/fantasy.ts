@@ -431,7 +431,7 @@ export async function runFantasyReport(
   }
 }
 
-async function reportNonce(value: string): Promise<string> {
+export async function reportNonce(value: string): Promise<string> {
   const digest = await crypto.subtle.digest(
     "SHA-256",
     new TextEncoder().encode(value),
