@@ -292,10 +292,16 @@ export interface Standing {
   name: string;
   points: number;
   events: number;
+  bestPlacing: number;
+  bestField: number;
+  faction: string | null;
 }
 
+export const circuitHeader = (season: string) =>
+  `**SCD Circuit ${season}**\nBest ${countedEvents} events count, team events excluded. Points = \`${circuitFormula}\`, where pct = (players you finished ahead of + 1) ÷ players.`;
+
 export function circuitMessage(season: string, standings: readonly Standing[], limit = 25): string {
-  const header = `**SCD Circuit ${season}**\nBest ${countedEvents} events count, team events excluded. Points = \`${circuitFormula}\`, where pct = (players you finished ahead of + 1) ÷ players.`;
+  const header = circuitHeader(season);
   if (standings.length === 0) return `${header}\n\nNo claimed results yet.`;
   const lines = standings
     .slice(0, limit)

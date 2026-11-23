@@ -75,7 +75,7 @@ async function seedClaim(discordId: string, bcpId: string, name: string) {
 
 beforeEach(async () => {
   await env.DB.batch(
-    ["bcp_auth", "bcp_posts", "bcp_results", "bcp_claims", "bcp_roster", "bcp_events"].map((table) => env.DB.prepare(`DELETE FROM ${table}`)),
+    ["bcp_circuit_images", "bcp_auth", "bcp_posts", "bcp_results", "bcp_claims", "bcp_roster", "bcp_events"].map((table) => env.DB.prepare(`DELETE FROM ${table}`)),
   );
 });
 
@@ -301,9 +301,48 @@ describe("/bcp interactions", () => {
     await seedClaim("discord-ken", "ken", "Ken Edwards");
     const elsewhere = await body(await send(keys, interactionEnv, circuit("discord-ken", "general")));
     expect(elsewhere).toMatchObject({ flags: 64, content: "Use `/bcp circuit` in <#event-discussion>." });
-    const here = await body(await send(keys, interactionEnv, circuit("discord-ken", "event-discussion")));
-    expect(here.flags).toBe(0);
-    expect(here.content).toContain("SCD Circuit");
+    vi.stubGlobal("fetch", vi.fn(async () => json({ id: "reply" })));
+    const here = await send(keys, interactionEnv, circuit("discord-ken", "event-discussion"));
+    vi.unstubAllGlobals();
+    expect(await here.json()).toEqual({ type: 5 });
+  });
+
+  it("posts the circuit as a cached table image with best placement and most played faction", async () => {
+    const { keys, interactionEnv } = await setup();
+    await seedClaim("discord-ken", "ken", "Ken Edwards");
+    const ev = env.DB.prepare("INSERT INTO bcp_events (bcp_id, name, starts_at, status) VALUES (?, ?, '2026-09-01T00:00:00Z', 'final')");
+    const res = env.DB.prepare("INSERT INTO bcp_results VALUES (?, ?, 'x', ?, ?, '3-0-0', ?, '2026-27')");
+    await env.DB.batch([
+      ...["A", "B", "C"].map((id) => ev.bind(id, id)),
+      // Ken: 2nd of 3 at A, 2nd of 2 at B, 3rd of 3 at C. Best is 2nd in the bigger field.
+      res.bind("A", "ken", "Orks", 2, 90), res.bind("A", "x1", null, 1, 0), res.bind("A", "x2", null, 3, 0),
+      res.bind("B", "ken", "Necrons", 2, 80), res.bind("B", "x1", null, 1, 0),
+      res.bind("C", "ken", "Necrons", 3, 10), res.bind("C", "x1", null, 1, 0), res.bind("C", "x2", null, 2, 0),
+    ]);
+    expect(await circuitStandings(env as Env, "2026-27")).toEqual([
+      { discordUserId: "discord-ken", name: "Ken Edwards", points: 180, events: 3, bestPlacing: 2, bestField: 3, faction: "Necrons" },
+    ]);
+
+    const patches: FormData[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+      patches.push(init?.body as FormData);
+      return json({ id: "reply" });
+    }));
+    const command = {
+      type: 2, token: "t", application_id: "app", channel_id: "event-discussion", member: { user: { id: "discord-ken" }, permissions: "0" },
+      data: { name: "bcp", options: [{ name: "circuit" }] },
+    };
+    await send(keys, interactionEnv, command);
+    await send(keys, interactionEnv, command);
+    vi.unstubAllGlobals();
+
+    expect(patches).toHaveLength(2);
+    expect(JSON.parse(String(patches[0].get("payload_json"))).content).toContain("`100 × pct²");
+    const png = new Uint8Array(await (patches[0].get("files[0]") as Blob).arrayBuffer());
+    expect([...png.slice(1, 4)].map((byte) => String.fromCharCode(byte)).join("")).toBe("PNG");
+    // The second request reuses the stored image instead of drawing a new one.
+    expect(new Uint8Array(await (patches[1].get("files[0]") as Blob).arrayBuffer())).toEqual(png);
+    expect(await env.DB.prepare("SELECT count(*) AS n FROM bcp_circuit_images").first()).toEqual({ n: 1 });
   });
 
   it("lists each event with its members as bullets, by name not mention", async () => {

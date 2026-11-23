@@ -1,6 +1,7 @@
-import { bcpEventIds, bcpEventUrl, circuitMessage, circuitSeason, countedEvents, discordText, fetchArmyList, fetchEvent, listSections } from "./bcp";
+import { bcpEventIds, bcpEventUrl, circuitHeader, circuitSeason, countedEvents, discordText, fetchArmyList, fetchEvent, listSections } from "./bcp";
 import { bcpAccessToken } from "./bcp-auth";
 import { circuitStandings, trackEvent } from "./bcp-bot";
+import { circuitPng } from "./circuit-image";
 import { commands } from "./commands";
 import type { Env } from "./events";
 
@@ -246,9 +247,24 @@ function help(): Response {
   return reply(`**AlpacaBot BCP commands**\n${lines.join("\n")}\n\nStart with \`/bcp claim\` so your pairings and results show up in bold.`, ephemeral);
 }
 
-async function circuit(env: Env, sub: Option): Promise<Response> {
+async function circuit(env: Env, interaction: Interaction, sub: Option, ctx: ExecutionContext): Promise<Response> {
   const season = String(option(sub.options, "season")?.value ?? circuitSeason(new Date().toISOString()));
-  return reply(circuitMessage(season, await circuitStandings(env, season)));
+  ctx.waitUntil(
+    (async () => {
+      const standings = await circuitStandings(env, season);
+      if (standings.length === 0) return followUp(interaction, `${circuitHeader(season)}\n\nNo claimed results yet.`);
+      const form = new FormData();
+      form.set("payload_json", JSON.stringify({
+        content: circuitHeader(season),
+        attachments: [{ id: 0, filename: `scd-circuit-${season}.png` }],
+        allowed_mentions: { parse: [] },
+      }));
+      form.set("files[0]", new Blob([await circuitPng(env, season, standings)], { type: "image/png" }), `scd-circuit-${season}.png`);
+      const response = await fetch(`${discordApi}/webhooks/${interaction.application_id}/${interaction.token}/messages/@original`, { method: "PATCH", body: form });
+      if (!response.ok) throw new Error(`circuit image reply failed with ${response.status}`);
+    })().catch((error) => followUp(interaction, `Couldn't draw the circuit table: ${String(error).slice(0, 200)}`)),
+  );
+  return Response.json({ type: 5 });
 }
 
 // Commands anyone can run before claiming, and commands that post publicly.
@@ -279,7 +295,7 @@ export async function handleInteraction(request: Request, env: Env, ctx: Executi
     case "unclaim": return unclaim(env, interaction, sub);
     case "events": return events(env);
     case "track": return track(env, interaction, sub, ctx);
-    case "circuit": return circuit(env, sub);
+    case "circuit": return circuit(env, interaction, sub, ctx);
     case "list": return list(env, interaction, sub, ctx);
     case "help": return help();
     case "profile": return profile(env, interaction, sub);

@@ -12,6 +12,7 @@
     "BCP_ALERT_CHANNEL_ID": "1446494413315506186"
   },
   "keep_vars": true,
+  "rules": [{ "type": "Data", "globs": ["**/*.ttf"], "fallthrough": true }],
   "ai": {
     "binding": "AI",
     "remote": true
