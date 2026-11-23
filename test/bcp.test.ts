@@ -2,7 +2,7 @@ import { createExecutionContext, env, waitOnExecutionContext } from "cloudflare:
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { circuitPoints, circuitSeason, listSections } from "../src/bcp";
 import { bcpAccessToken } from "../src/bcp-auth";
-import { runBcp } from "../src/bcp-bot";
+import { circuitStandings, runBcp } from "../src/bcp-bot";
 import type { Env } from "../src/events";
 import { handleInteraction } from "../src/interactions";
 
@@ -211,13 +211,29 @@ describe("/bcp interactions", () => {
     expect(owner).toEqual({ discord_user_id: "discord-ken" });
   });
 
+  it("lets one member claim two BCP accounts and counts both in the circuit", async () => {
+    const { keys, interactionEnv } = await setup();
+    await env.DB.batch([
+      env.DB.prepare("INSERT INTO bcp_roster VALUES ('EVT1', 'ken-new', 'Ken Edwards', NULL)"),
+      env.DB.prepare("INSERT INTO bcp_results VALUES ('EVT1', 'ken', 'Ken Edwards', NULL, 1, '5-0-0', 40, '2026-27')"),
+      env.DB.prepare("INSERT INTO bcp_results VALUES ('EVT1', 'ken-new', 'Ken Edwards', NULL, 1, '5-0-0', 30, '2026-27')"),
+    ]);
+
+    await send(keys, interactionEnv, claim("discord-ken", "ken"));
+    await send(keys, interactionEnv, claim("discord-ken", "ken-new"));
+
+    const { results } = await env.DB.prepare("SELECT bcp_user_id FROM bcp_claims WHERE discord_user_id = 'discord-ken' ORDER BY 1").all();
+    expect(results).toEqual([{ bcp_user_id: "ken" }, { bcp_user_id: "ken-new" }]);
+    expect(await circuitStandings(env as Env, "2026-27")).toMatchObject([{ discordUserId: "discord-ken", points: 70, events: 2 }]);
+  });
+
   it("autocompletes claim names from tracked rosters", async () => {
     const { keys, interactionEnv } = await setup();
     const response = await send(keys, interactionEnv, {
       ...claim("discord-ken", "edw"),
       type: 4,
     });
-    expect(await response.json()).toEqual({ type: 8, data: { choices: [{ name: "Ken Edwards", value: "ken" }] } });
+    expect(await response.json()).toEqual({ type: 8, data: { choices: [{ name: "Ken Edwards · Whole Hog GT", value: "ken" }] } });
   });
 
   it("posts a signed-in army list in sections in a thread on the public reply", async () => {

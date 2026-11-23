@@ -58,14 +58,16 @@ function option(options: Option[] | undefined, name: string): Option | undefined
 async function autocomplete(env: Env, sub: Option): Promise<Response> {
   const query = String(option(sub.options, "name")?.value ?? "").trim();
   const { results } = await env.DB.prepare(
-    `SELECT bcp_user_id, name FROM bcp_roster WHERE name LIKE ?1 ESCAPE '\\'
-     GROUP BY bcp_user_id ORDER BY name LIMIT 25`,
+    // Each BCP account is labeled with its latest event, so same-name accounts can be told apart.
+    `SELECT r.bcp_user_id, r.name, e.name AS event, max(e.starts_at) FROM bcp_roster r
+     JOIN bcp_events e ON e.bcp_id = r.event_id
+     WHERE r.name LIKE ?1 ESCAPE '\\' GROUP BY r.bcp_user_id ORDER BY r.name LIMIT 25`,
   )
     .bind(`%${query.replace(/[\\%_]/g, "\\$&")}%`)
-    .all<{ bcp_user_id: string; name: string }>();
+    .all<{ bcp_user_id: string; name: string; event: string }>();
   return Response.json({
     type: 8,
-    data: { choices: results.map((row) => ({ name: row.name.slice(0, 100), value: row.bcp_user_id })) },
+    data: { choices: results.map((row) => ({ name: `${row.name} · ${row.event}`.slice(0, 100), value: row.bcp_user_id })) },
   });
 }
 
@@ -168,11 +170,11 @@ async function claim(env: Env, interaction: Interaction, sub: Option): Promise<R
   }
   await env.DB.prepare(
     `INSERT INTO bcp_claims (discord_user_id, bcp_user_id, bcp_name, claimed_at) VALUES (?1, ?2, ?3, ?4)
-     ON CONFLICT (discord_user_id) DO UPDATE SET bcp_user_id = ?2, bcp_name = ?3, claimed_at = ?4`,
+     ON CONFLICT (bcp_user_id) DO NOTHING`,
   )
     .bind(member, bcpUserId, entrant.name, new Date().toISOString())
     .run();
-  return reply(`You're linked to **${discordText(entrant.name)}** on BCP. Your pairings and results will post in the event channel.`, ephemeral);
+  return reply(`You're linked to **${discordText(entrant.name)}** on BCP. Your pairings and results will post in the event channel. If you have another BCP account, claim it too.`, ephemeral);
 }
 
 async function unclaim(env: Env, interaction: Interaction, sub: Option): Promise<Response> {
