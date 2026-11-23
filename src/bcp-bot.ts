@@ -1,6 +1,6 @@
 import {
   bcpEventIds,
-  circuitMessage,
+  circuitHeader,
   circuitPoints,
   circuitSeason,
   countedEvents,
@@ -15,6 +15,7 @@ import {
   type ResultRow,
   type Standing,
 } from "./bcp";
+import { circuitPng } from "./circuit-image";
 import { postReport } from "./discord";
 import type { Env } from "./events";
 import { reportNonce } from "./fantasy";
@@ -83,13 +84,35 @@ async function claimPost(env: Env, key: string): Promise<boolean> {
 // Events tracked long after they ended still record circuit points, but stay quiet.
 const announceWindowMs = 14 * 24 * 60 * 60 * 1_000;
 
+type Post = string | { content: string; png: Uint8Array; filename: string };
+
+async function postImage(fetcher: typeof fetch, env: Env, nonce: string, post: Exclude<Post, string>): Promise<void> {
+  const form = new FormData();
+  form.set("payload_json", JSON.stringify({
+    content: post.content,
+    attachments: [{ id: 0, filename: post.filename }],
+    allowed_mentions: { parse: [] },
+    nonce,
+    enforce_nonce: true,
+  }));
+  form.set("files[0]", new Blob([post.png], { type: "image/png" }), post.filename);
+  const response = await fetcher(`${discordApi}/channels/${env.BCP_CHANNEL_ID}/messages`, {
+    method: "POST",
+    headers: { Authorization: `Bot ${env.DISCORD_BOT_TOKEN}` },
+    body: form,
+  });
+  if (!response.ok) throw new Error(`post circuit image failed with ${response.status}`);
+}
+
 // Posts once per key; a failed send releases the key so the next poll retries.
-async function postOnce(env: Env, fetcher: typeof fetch, key: string, messages: readonly string[]): Promise<void> {
+async function postOnce(env: Env, fetcher: typeof fetch, key: string, messages: readonly Post[]): Promise<void> {
   // An empty round is still claimed, so later polls skip refetching it.
   if (!(await claimPost(env, key)) || messages.length === 0) return;
   try {
-    for (const [index, content] of messages.entries()) {
-      await postReport(fetcher, env.DISCORD_BOT_TOKEN, env.BCP_CHANNEL_ID!, await reportNonce(`${key}:${index}`), content);
+    for (const [index, post] of messages.entries()) {
+      const nonce = await reportNonce(`${key}:${index}`);
+      if (typeof post === "string") await postReport(fetcher, env.DISCORD_BOT_TOKEN, env.BCP_CHANNEL_ID!, nonce, post);
+      else await postImage(fetcher, env, nonce, post);
     }
   } catch (error) {
     await env.DB.prepare("DELETE FROM bcp_posts WHERE post_key = ?").bind(key).run();
@@ -166,9 +189,12 @@ async function finalize(env: Env, fetcher: typeof fetch, event: BcpEvent): Promi
   const members = await claimedIds(env);
   const memberRows = rows.filter((row) => members.has(row.bcpUserId));
   if (memberRows.length && Date.now() - Date.parse(event.eventDate) < announceWindowMs) {
+    const standings = await circuitStandings(env, season);
     await postOnce(env, fetcher, `final:${event.id}`, [
       ...finalMessages(event, placed.length, memberRows),
-      circuitMessage(season, await circuitStandings(env, season)),
+      standings.length
+        ? { content: circuitHeader(season), png: await circuitPng(env, season, standings), filename: `scd-circuit-${season}.png` }
+        : `${circuitHeader(season)}\n\nNo claimed results yet.`,
     ]);
   }
   await env.DB.prepare("UPDATE bcp_events SET status = 'final' WHERE bcp_id = ?").bind(event.id).run();

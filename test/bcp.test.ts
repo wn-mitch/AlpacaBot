@@ -31,14 +31,17 @@ const round2 = [
 ];
 
 function bcpServer(state: { currentRound: number; ended: boolean; round2Published?: boolean; teamEvent?: boolean }) {
-  const posts: { url: string; body: { content: string } }[] = [];
+  const posts: { url: string; body: { content: string }; file?: Blob }[] = [];
   const fetcher = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = new URL(String(input));
     if (url.hostname === "discord.com") {
       if (url.pathname.endsWith("/scheduled-events")) {
         return json([{ description: "https://www.bestcoastpairings.com/event/EVT1" }, { description: "Placeholder" }]);
       }
-      posts.push({ url: url.pathname, body: JSON.parse(String(init?.body)) });
+      const body = init?.body;
+      posts.push(body instanceof FormData
+        ? { url: url.pathname, body: JSON.parse(String(body.get("payload_json"))), file: body.get("files[0]") as Blob }
+        : { url: url.pathname, body: JSON.parse(String(body)) });
       return json({ id: `m${posts.length}` });
     }
     if (url.pathname === "/v1/events/EVT1") {
@@ -148,7 +151,10 @@ describe("BCP event posts", () => {
     expect(contents[0]).toContain("2. **Ken Edwards** — 1-0-0 · Death Guard · 56.3 circuit pts");
     // Best four of 10, 20, 30, 40, 56.3 → 146.3; last season's 99 is excluded.
     expect(contents[1]).toContain("**SCD Circuit 2026-27**");
-    expect(contents[1]).toContain("1. **Ken Edwards** — 146.3 pts (5 events)");
+    expect(await circuitStandings(env as Env, "2026-27")).toMatchObject([{ name: "Ken Edwards", points: 146.3, events: 5 }]);
+    // The standings go out as the same table image /bcp circuit posts.
+    const png = new Uint8Array(await server.posts[1].file!.arrayBuffer());
+    expect(String.fromCharCode(...png.slice(1, 4))).toBe("PNG");
     const status = await env.DB.prepare("SELECT status FROM bcp_events WHERE bcp_id = 'EVT1'").first<{ status: string }>();
     expect(status?.status).toBe("final");
   });

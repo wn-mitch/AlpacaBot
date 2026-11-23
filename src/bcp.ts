@@ -301,12 +301,3 @@ export interface Standing {
 
 export const circuitHeader = (season: string) =>
   `**SCD Circuit ${season}**\nBest ${countedEvents} events count, team events excluded. Points = \`${circuitFormula}\`, where pct = (players you finished ahead of + 1) ÷ players.`;
-
-export function circuitMessage(season: string, standings: readonly Standing[], limit = 25): string {
-  const header = circuitHeader(season);
-  if (standings.length === 0) return `${header}\n\nNo claimed results yet.`;
-  const lines = standings
-    .slice(0, limit)
-    .map((row, index) => `${index + 1}. **${discordText(row.name)}** — ${row.points.toFixed(1)} pts (${row.events} event${row.events === 1 ? "" : "s"})`);
-  return chunkMessage(header, lines)[0];
-}
