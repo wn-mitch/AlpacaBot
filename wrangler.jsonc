@@ -1,0 +1,23 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "alpacabot",
+  "main": "src/worker.ts",
+  "compatibility_date": "2026-08-03",
+  "triggers": {
+    "crons": ["0 * * * *"]
+  },
+  "ai": {
+    "binding": "AI",
+    "remote": true
+  },
+  "durable_objects": {
+    "bindings": [
+      { "name": "ATTENDANCE_LEDGER", "class_name": "AttendanceLedger" },
+      { "name": "FANTASY_LEDGER", "class_name": "FantasyLedger" }
+    ]
+  },
+  "migrations": [
+    { "tag": "v1", "new_sqlite_classes": ["AttendanceLedger"] },
+    { "tag": "v2", "new_sqlite_classes": ["FantasyLedger"] }
+  ]
+}

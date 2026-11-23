@@ -7,10 +7,7 @@ updates:
     commit-message:
       prefix: "Github Actions"
       include: "scope"
-  - package-ecosystem: "cargo"
+  - package-ecosystem: "npm"
     directory: "/"
     schedule:
       interval: "daily"
-    ignore:
-        - dependency-name: "semver"
-        - dependency-name: "crates-io"
