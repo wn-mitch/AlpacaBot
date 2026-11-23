@@ -46,7 +46,6 @@ for (const id of ids) {
   if (!event?.ended || event.hidePlacings || event.eventDate < since) continue;
   const placed = (await fetchEntrants(fetch, id, true)).filter((entrant) => entrant.placing !== null);
   if (placed.length === 0) continue;
-  // Team events pair teams rather than players, so their records may be blank.
   const rounds: Game[][] = [];
   for (let round = 1; round <= event.currentRound; round++) {
     const games = await fetchRound(fetch, id, round).catch(() => null);
@@ -60,7 +59,11 @@ for (const id of ids) {
   for (const entrant of placed) {
     sql.push(
       `INSERT OR REPLACE INTO bcp_roster (event_id, bcp_user_id, name, list_id) VALUES (${q(id)}, ${q(entrant.userId)}, ${q(entrant.name)}, ${q(entrant.listId)});`,
-      `INSERT OR REPLACE INTO bcp_results VALUES (${q(id)}, ${q(entrant.userId)}, ${q(entrant.name)}, ${q(entrant.faction)}, ${entrant.placing}, ${q(records.get(entrant.userId)?.join("-") ?? "0-0-0")}, ${circuitPoints(entrant.placing!, placed.length)}, ${q(season)});`,
+    );
+    // Team events pair teams, not players, so they score no circuit points.
+    if (event.teamEvent) continue;
+    sql.push(
+      `INSERT OR REPLACE INTO bcp_results VALUES (${q(id)}, ${q(entrant.userId)}, ${q(entrant.name)}, ${q(entrant.faction)}, ${entrant.placing}, ${q(records.get(entrant.userId)?.join("-") ?? "0-0-0")}, ${circuitPoints(entrant.placing!, placed.length, event.rounds)}, ${q(season)});`,
     );
   }
   console.error(`${event.eventDate.slice(0, 10)}  ${placed.length} players  ${event.name}`);

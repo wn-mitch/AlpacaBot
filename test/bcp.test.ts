@@ -30,7 +30,7 @@ const round2 = [
   { table: 2, published: true, isDone: false, player1: jack, player2: sam },
 ];
 
-function bcpServer(state: { currentRound: number; ended: boolean; round2Published?: boolean }) {
+function bcpServer(state: { currentRound: number; ended: boolean; round2Published?: boolean; teamEvent?: boolean }) {
   const posts: { url: string; body: { content: string } }[] = [];
   const fetcher = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = new URL(String(input));
@@ -42,7 +42,7 @@ function bcpServer(state: { currentRound: number; ended: boolean; round2Publishe
       return json({ id: `m${posts.length}` });
     }
     if (url.pathname === "/v1/events/EVT1") {
-      return json({ name: "Whole Hog GT", eventDate: "2026-12-05T14:00:00.000Z", ...state, hidePlacings: false });
+      return json({ name: "Whole Hog GT", eventDate: "2026-12-05T14:00:00.000Z", numberOfRounds: 3, ...state, hidePlacings: false });
     }
     if (url.pathname === "/v1/events/EVT1/players") {
       const placed = url.searchParams.get("placings") === "true";
@@ -80,13 +80,17 @@ beforeEach(async () => {
 });
 
 describe("circuit scoring", () => {
-  it("pays 100 to any winner and more for the same place in a bigger field", () => {
-    expect(circuitPoints(1, 17)).toBe(100);
-    expect(circuitPoints(1, 175)).toBe(100);
-    expect(circuitPoints(49, 49)).toBe(2);
-    // 9th of 175 beat 166 players: 100 × 167 / 175 = 95.43
-    expect(circuitPoints(9, 175)).toBe(95.4);
-    expect(circuitPoints(9, 20)).toBe(60);
+  it("weights finishing position over field size and event length", () => {
+    // A 3-round RTT of 10 or fewer players is the 100-point baseline.
+    expect(circuitPoints(1, 8, 3)).toBe(100);
+    // 1 + log₁₀(3) = 1.4771, √(5/3) = 1.2910 → 190.7
+    expect(circuitPoints(1, 30, 5)).toBe(190.7);
+    // 1 + log₁₀(17.5) = 2.2430, √(8/3) = 1.6330 → 366.3
+    expect(circuitPoints(1, 175, 8)).toBe(366.3);
+    // 70th of 175 beat 105: (106/175)² × 366.3 = 134.4, less than winning the 30-player GT.
+    expect(circuitPoints(70, 175, 8)).toBe(134.4);
+    // 2nd of 4 at a 3-round RTT: (3/4)² × 100
+    expect(circuitPoints(2, 4, 3)).toBe(56.3);
   });
 
   it("starts a season on July 1, except the first starts with ATC on June 23, 2026", () => {
@@ -140,13 +144,25 @@ describe("BCP event posts", () => {
 
     const contents = server.posts.map((post) => post.body.content);
     expect(contents).toHaveLength(2);
-    // Ken placed 2nd of 4: 100 × 3 / 4 = 75.
-    expect(contents[0]).toContain("2. **Ken Edwards** — 1-0-0 · Death Guard · 75 circuit pts");
-    // Best four of 10, 20, 30, 40, 75 → 165; last season's 99 is excluded.
+    // Ken placed 2nd of 4 at a 3-round event: (3/4)² × 100 = 56.3.
+    expect(contents[0]).toContain("2. **Ken Edwards** — 1-0-0 · Death Guard · 56.3 circuit pts");
+    // Best four of 10, 20, 30, 40, 56.3 → 146.3; last season's 99 is excluded.
     expect(contents[1]).toContain("**SCD Circuit 2026-27**");
-    expect(contents[1]).toContain("1. **Ken Edwards** — 165.0 pts (5 events)");
+    expect(contents[1]).toContain("1. **Ken Edwards** — 146.3 pts (5 events)");
     const status = await env.DB.prepare("SELECT status FROM bcp_events WHERE bcp_id = 'EVT1'").first<{ status: string }>();
     expect(status?.status).toBe("final");
+  });
+
+  it("posts team event results without scoring them", async () => {
+    await seedClaim("discord-ken", "ken", "Ken Edwards");
+    const server = bcpServer({ currentRound: 2, ended: true, teamEvent: true });
+
+    await runBcp(syncTime, botEnv, server.fetcher);
+    await runBcp(pollTime, botEnv, server.fetcher);
+
+    expect(server.posts[0].body.content).toMatch(/^2\. \*\*Ken Edwards\*\* — 1-0-0 · Death Guard$/m);
+    expect(server.posts[0].body.content).not.toContain("circuit pts");
+    expect(await env.DB.prepare("SELECT count(*) AS n FROM bcp_results").first()).toEqual({ n: 0 });
   });
 });
 

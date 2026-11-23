@@ -17,6 +17,8 @@ export interface BcpEvent {
   ended: boolean;
   hidePlacings: boolean;
   hideLists: boolean;
+  rounds: number;
+  teamEvent: boolean;
 }
 
 export interface BcpEntrant {
@@ -90,6 +92,8 @@ export async function fetchEvent(fetcher: typeof fetch, eventId: string): Promis
     ended: raw.ended === true,
     hidePlacings: raw.hidePlacings === true,
     hideLists: raw.hideLists === true,
+    rounds: Number(raw.numberOfRounds) || Number(raw.currentRound) || 0,
+    teamEvent: raw.teamEvent === true,
   };
 }
 
@@ -188,10 +192,15 @@ export function circuitSeason(isoDate: string): string {
   return `${start}-${String((start + 1) % 100).padStart(2, "0")}`;
 }
 
-// 100 × (players finished ahead of + 1) / field size: the winner earns 100 at any
-// event, and the same placing is worth more in a bigger field.
-export function circuitPoints(placing: number, fieldSize: number): number {
-  return Math.round((1000 * (fieldSize - placing + 1)) / fieldSize) / 10;
+// Finishing position matters most (it is squared), and bigger and longer events pay
+// more on top: a win at an 8-player 3-round RTT is 100, a win at a 175-player
+// 8-round GT is about 366. Fields under 10 players get no size bonus.
+export const circuitFormula = "100 × pct² × (1 + log₁₀(players ÷ 10)) × √(rounds ÷ 3)";
+
+export function circuitPoints(placing: number, fieldSize: number, rounds: number): number {
+  const pct = (fieldSize - placing + 1) / fieldSize;
+  const size = 1 + Math.log10(Math.max(fieldSize, 10) / 10);
+  return Math.round(1000 * pct ** 2 * size * Math.sqrt(rounds / 3)) / 10;
 }
 
 export const countedEvents = 4;
@@ -262,7 +271,8 @@ export interface ResultRow {
   faction: string | null;
   placing: number;
   record: string;
-  points: number;
+  // Null for team events, which score no circuit points.
+  points: number | null;
 }
 
 export function finalMessages(
@@ -272,7 +282,7 @@ export function finalMessages(
 ): string[] {
   const lines = [...rows]
     .sort((left, right) => left.placing - right.placing)
-    .map((row) => `${row.placing}. **${discordText(row.name)}** — ${row.record} · ${discordText(row.faction ?? "faction unknown")} · ${row.points} circuit pts`);
+    .map((row) => `${row.placing}. **${discordText(row.name)}** — ${row.record} · ${discordText(row.faction ?? "faction unknown")}${row.points === null ? "" : ` · ${row.points} circuit pts`}`);
   const header = `**${discordText(event.name)} · Final results**\nSCD members · ${fieldSize} players · [BCP placings](<${bcpEventUrl(event.id)}?active_tab=placings>)`;
   return chunkMessage(header, lines);
 }
@@ -285,7 +295,7 @@ export interface Standing {
 }
 
 export function circuitMessage(season: string, standings: readonly Standing[], limit = 25): string {
-  const header = `**SCD Circuit ${season}**\nBest ${countedEvents} events count. Points = 100 × (players finished ahead of + 1) ÷ field size.`;
+  const header = `**SCD Circuit ${season}**\nBest ${countedEvents} events count, team events excluded. Points = \`${circuitFormula}\`, where pct = (players you finished ahead of + 1) ÷ players.`;
   if (standings.length === 0) return `${header}\n\nNo claimed results yet.`;
   const lines = standings
     .slice(0, limit)

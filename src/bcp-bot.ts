@@ -137,13 +137,16 @@ async function finalize(env: Env, fetcher: typeof fetch, event: BcpEvent): Promi
     faction: entrant.faction,
     placing: entrant.placing!,
     record: records.get(entrant.userId)?.join("-") ?? "0-0-0",
-    points: circuitPoints(entrant.placing!, placed.length),
+    points: event.teamEvent ? null : circuitPoints(entrant.placing!, placed.length, event.rounds),
   }));
   const insert = env.DB.prepare(
     `INSERT OR REPLACE INTO bcp_results (event_id, bcp_user_id, name, faction, placing, record, points, season)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
   );
-  await env.DB.batch(rows.map((row) => insert.bind(event.id, row.bcpUserId, row.name, row.faction, row.placing, row.record, row.points, season)));
+  // Team events pair teams, not players, so they are posted but never scored.
+  if (!event.teamEvent) {
+    await env.DB.batch(rows.map((row) => insert.bind(event.id, row.bcpUserId, row.name, row.faction, row.placing, row.record, row.points, season)));
+  }
 
   const members = await claimedIds(env);
   const memberRows = rows.filter((row) => members.has(row.bcpUserId));
