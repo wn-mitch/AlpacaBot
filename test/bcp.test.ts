@@ -302,6 +302,29 @@ describe("/bcp interactions", () => {
     expect(content).not.toMatch(/<@\d*\w*>/);
   });
 
+  it("shows a member's season privately, marking the best four as counted", async () => {
+    const { keys, interactionEnv } = await setup();
+    await seedClaim("discord-ken", "ken", "Ken Edwards");
+    const ev = env.DB.prepare("INSERT INTO bcp_events (bcp_id, name, starts_at, status) VALUES (?, ?, '2026-09-01T00:00:00Z', 'final')");
+    const res = env.DB.prepare("INSERT INTO bcp_results VALUES (?, 'ken', 'Ken Edwards', NULL, 1, '5-0-0', ?, ?)");
+    await env.DB.batch([
+      ...["A", "B", "C", "D", "E", "F"].map((id) => ev.bind(id, `Event ${id}`)),
+      ...[10, 50, 20, 40, 30].map((points, i) => res.bind("ABCDE"[i], points, "2026-27")),
+      res.bind("F", 99, "2025-26"),
+    ]);
+    const response = await send(keys, interactionEnv, {
+      type: 2, token: "t", application_id: "app", channel_id: "general", member: { user: { id: "discord-ken" }, permissions: "0" },
+      data: { name: "bcp", options: [{ name: "profile" }] },
+    });
+    const { data } = await response.json<{ data: { content: string; flags: number } }>();
+    expect(data.flags).toBe(64);
+    // Best four of 10, 50, 20, 40, 30 = 140; last season's 99 is excluded.
+    expect(data.content).toContain("**140.0 pts** from your best 4 of 5 events");
+    expect(data.content).toMatch(/✅ \*\*\[Event B\]/);
+    expect(data.content).toContain("Event A](<https://www.bestcoastpairings.com/event/A>) · 1/1 · 5-0-0 · 10.0 pts (not counted)");
+    expect(data.content).not.toContain("Event F");
+  });
+
   it("lists every /bcp command privately", async () => {
     const { keys, interactionEnv } = await setup();
     const response = await send(keys, interactionEnv, {

@@ -1,4 +1,4 @@
-import { bcpEventIds, bcpEventUrl, circuitMessage, circuitSeason, discordText, fetchArmyList, fetchEvent, listSections } from "./bcp";
+import { bcpEventIds, bcpEventUrl, circuitMessage, circuitSeason, countedEvents, discordText, fetchArmyList, fetchEvent, listSections } from "./bcp";
 import { bcpAccessToken } from "./bcp-auth";
 import { circuitStandings, trackEvent } from "./bcp-bot";
 import { commands } from "./commands";
@@ -217,6 +217,30 @@ async function track(env: Env, interaction: Interaction, sub: Option, ctx: Execu
   return Response.json({ type: 5, data: { flags: ephemeral } });
 }
 
+async function profile(env: Env, interaction: Interaction, sub: Option): Promise<Response> {
+  const season = String(option(sub.options, "season")?.value ?? circuitSeason(new Date().toISOString()));
+  const { results } = await env.DB.prepare(
+    `SELECT e.bcp_id, e.name, e.starts_at, r.placing, r.record, r.points,
+       (SELECT count(*) FROM bcp_results x WHERE x.event_id = r.event_id) AS field
+     FROM bcp_claims c JOIN bcp_results r ON r.bcp_user_id = c.bcp_user_id
+     JOIN bcp_events e ON e.bcp_id = r.event_id
+     WHERE c.discord_user_id = ? AND r.season = ? ORDER BY r.points DESC, e.starts_at`,
+  )
+    .bind(userId(interaction), season)
+    .all<{ bcp_id: string; name: string; starts_at: string; placing: number; record: string; points: number; field: number }>();
+  const header = `**Your SCD Circuit ${season}**`;
+  if (results.length === 0) return reply(`${header}\nNo results yet this season.`, ephemeral);
+  // Same ranking as circuitStandings: the highest-scoring events count.
+  const total = results.slice(0, countedEvents).reduce((sum, row) => sum + row.points, 0);
+  const lines = results.map((row, index) => {
+    const event = `[${discordText(row.name)}](<${bcpEventUrl(row.bcp_id)}>)`;
+    const detail = `${row.placing}/${row.field} · ${row.record} · ${row.points.toFixed(1)} pts`;
+    return index < countedEvents ? `- ✅ **${event}** · ${detail}` : `- ${event} · ${detail} (not counted)`;
+  });
+  const content = `${header}\n**${total.toFixed(1)} pts** from your best ${Math.min(countedEvents, results.length)} of ${results.length} event${results.length === 1 ? "" : "s"}.\n\n${lines.join("\n")}`;
+  return reply(content.slice(0, 2_000), ephemeral);
+}
+
 function help(): Response {
   const lines = commands[0].options.map((sub) => `\`/bcp ${sub.name}\` · ${sub.description}`);
   return reply(`**AlpacaBot BCP commands**\n${lines.join("\n")}\n\nStart with \`/bcp claim\` so your pairings and results show up in bold.`, ephemeral);
@@ -258,6 +282,7 @@ export async function handleInteraction(request: Request, env: Env, ctx: Executi
     case "circuit": return circuit(env, sub);
     case "list": return list(env, interaction, sub, ctx);
     case "help": return help();
+    case "profile": return profile(env, interaction, sub);
     default: return reply("Unknown command.", ephemeral);
   }
 }

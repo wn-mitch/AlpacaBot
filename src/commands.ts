@@ -14,6 +14,10 @@ export const commands = [
         options: [{ type: 6, name: "member", description: "Member to unlink (default: you)" }],
       },
       { type: 1, name: "help", description: "List the /bcp commands (only you see it)" },
+      {
+        type: 1, name: "profile", description: "Your SCD Circuit events this season (only you see it)",
+        options: [{ type: 3, name: "season", description: "Season, such as 2026-27" }],
+      },
       { type: 1, name: "events", description: "Upcoming SCD calendar events and who's signed up" },
       {
         type: 1, name: "track", description: "Track a BCP event that isn't on the calendar (mods)",
