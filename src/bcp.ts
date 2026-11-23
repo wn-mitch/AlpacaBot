@@ -292,6 +292,8 @@ export interface Standing {
   name: string;
   points: number;
   events: number;
+  // The event that scored the most points, not the lowest place number.
+  bestEvent: string;
   bestPlacing: number;
   bestField: number;
   faction: string | null;

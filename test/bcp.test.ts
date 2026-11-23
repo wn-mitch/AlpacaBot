@@ -307,20 +307,20 @@ describe("/bcp interactions", () => {
     expect(await here.json()).toEqual({ type: 5 });
   });
 
-  it("posts the circuit as a cached table image with best placement and most played faction", async () => {
+  it("posts the circuit as a cached table image with best event and most played faction", async () => {
     const { keys, interactionEnv } = await setup();
     await seedClaim("discord-ken", "ken", "Ken Edwards");
     const ev = env.DB.prepare("INSERT INTO bcp_events (bcp_id, name, starts_at, status) VALUES (?, ?, '2026-09-01T00:00:00Z', 'final')");
     const res = env.DB.prepare("INSERT INTO bcp_results VALUES (?, ?, 'x', ?, ?, '3-0-0', ?, '2026-27')");
     await env.DB.batch([
       ...["A", "B", "C"].map((id) => ev.bind(id, id)),
-      // Ken: 2nd of 3 at A, 2nd of 2 at B, 3rd of 3 at C. Best is 2nd in the bigger field.
+      // Ken won B, but A (2nd) scored more points (90 vs 80), so A is his best event.
       res.bind("A", "ken", "Orks", 2, 90), res.bind("A", "x1", null, 1, 0), res.bind("A", "x2", null, 3, 0),
-      res.bind("B", "ken", "Necrons", 2, 80), res.bind("B", "x1", null, 1, 0),
+      res.bind("B", "ken", "Necrons", 1, 80), res.bind("B", "x1", null, 2, 0),
       res.bind("C", "ken", "Necrons", 3, 10), res.bind("C", "x1", null, 1, 0), res.bind("C", "x2", null, 2, 0),
     ]);
     expect(await circuitStandings(env as Env, "2026-27")).toEqual([
-      { discordUserId: "discord-ken", name: "Ken Edwards", points: 180, events: 3, bestPlacing: 2, bestField: 3, faction: "Necrons" },
+      { discordUserId: "discord-ken", name: "Ken Edwards", points: 180, events: 3, bestEvent: "A", bestPlacing: 2, bestField: 3, faction: "Necrons" },
     ]);
 
     const patches: FormData[] = [];

@@ -109,27 +109,24 @@ async function roundsThrough(fetcher: typeof fetch, eventId: string, last: numbe
 
 export async function circuitStandings(env: Env, season: string): Promise<Standing[]> {
   const { results } = await env.DB.prepare(
-    `SELECT c.discord_user_id, c.bcp_name, r.points, r.placing, r.faction,
+    `SELECT c.discord_user_id, c.bcp_name, r.points, r.placing, r.faction, e.name AS event,
        (SELECT count(*) FROM bcp_results x WHERE x.event_id = r.event_id) AS field
      FROM bcp_claims c
      JOIN bcp_results r ON r.bcp_user_id = c.bcp_user_id
+     JOIN bcp_events e ON e.bcp_id = r.event_id
      WHERE r.season = ? ORDER BY r.points DESC`,
   )
     .bind(season)
-    .all<{ discord_user_id: string; bcp_name: string; points: number; placing: number; faction: string | null; field: number }>();
+    .all<{ discord_user_id: string; bcp_name: string; points: number; placing: number; faction: string | null; event: string; field: number }>();
   const byMember = new Map<string, Standing & { factions: Map<string, number> }>();
   for (const row of results) {
     const standing = byMember.get(row.discord_user_id) ?? {
       discordUserId: row.discord_user_id, name: row.bcp_name, points: 0, events: 0,
-      bestPlacing: row.placing, bestField: row.field, faction: null, factions: new Map(),
+      // Rows arrive highest-scoring first, so the first row is the best event.
+      bestEvent: row.event, bestPlacing: row.placing, bestField: row.field, faction: null, factions: new Map(),
     };
     if (standing.events < countedEvents) standing.points += row.points;
     standing.events++;
-    // Best placement is the lowest place number; a bigger field breaks ties.
-    if (row.placing < standing.bestPlacing || (row.placing === standing.bestPlacing && row.field > standing.bestField)) {
-      standing.bestPlacing = row.placing;
-      standing.bestField = row.field;
-    }
     if (row.faction) standing.factions.set(row.faction, (standing.factions.get(row.faction) ?? 0) + 1);
     byMember.set(row.discord_user_id, standing);
   }

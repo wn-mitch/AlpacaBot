@@ -6,17 +6,17 @@ import type { Standing } from "./bcp";
 import type { Env } from "./events";
 
 // Bump when the layout changes so cached images are redrawn.
-const layoutVersion = 1;
-const width = 960;
+const layoutVersion = 3;
+const width = 1200;
 const rowHeight = 34;
 const top = 96;
 const columns = [
   { title: "#", x: 24, anchor: "start" },
   { title: "Name", x: 72, anchor: "start" },
-  { title: "Pts", x: 450, anchor: "end" },
-  { title: "Events", x: 540, anchor: "end" },
-  { title: "Best", x: 650, anchor: "end" },
-  { title: "Most played", x: 690, anchor: "start" },
+  { title: "Pts", x: 400, anchor: "end" },
+  { title: "Events", x: 480, anchor: "end" },
+  { title: "Best event", x: 510, anchor: "start" },
+  { title: "Most played", x: 940, anchor: "start" },
 ] as const;
 const medals = ["#f0b232", "#c0c6cf", "#d08a4f"];
 
@@ -24,6 +24,8 @@ let ready: Promise<void> | undefined;
 
 const escape = (text: string) => text.replace(/[&<>"]/g, (char) => `&#${char.charCodeAt(0)};`);
 const clip = (text: string, max: number) => (text.length > max ? `${text.slice(0, max - 1)}…` : text);
+// GW events lead with a generic "Warhammer 40,000 Grand Tournament:" that hides which one it was.
+const eventName = (name: string) => name.replace(/^Warhammer 40,?000 Grand Tournament:\s*/i, "");
 const ordinal = (n: number) => {
   const tens = n % 100;
   const suffix = tens >= 11 && tens <= 13 ? "th" : ["th", "st", "nd", "rd"][n % 10] ?? "th";
@@ -43,11 +45,11 @@ export function circuitSvg(season: string, standings: readonly Standing[]): stri
     const text = `fill="#f2f3f5" font-size="16"`;
     const values = [
       String(index + 1),
-      clip(row.name, 30),
+      clip(row.name, 26),
       row.points.toFixed(1),
       String(row.events),
-      `${ordinal(row.bestPlacing)} / ${row.bestField}`,
-      clip(row.faction ?? "—", 26),
+      `${clip(eventName(row.bestEvent), 34)} (${ordinal(row.bestPlacing)}/${row.bestField})`,
+      clip(row.faction ?? "—", 24),
     ];
     const band = index % 2 === 0 ? `<rect x="12" y="${y}" width="${width - 24}" height="${rowHeight}" rx="6" fill="#2b2d31"/>` : "";
     return (
