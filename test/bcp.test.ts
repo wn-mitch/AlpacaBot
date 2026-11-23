@@ -274,6 +274,19 @@ describe("/bcp interactions", () => {
     expect(here.content).toContain("SCD Circuit");
   });
 
+  it("lists upcoming events as bullets with member names, not mentions", async () => {
+    const { keys, interactionEnv } = await setup();
+    await seedClaim("discord-ken", "ken", "Ken Edwards");
+    const response = await send(keys, interactionEnv, {
+      type: 2, token: "t", application_id: "app", channel_id: "event-discussion", member: { user: { id: "discord-ken" }, permissions: "0" },
+      data: { name: "bcp", options: [{ name: "events" }] },
+    });
+    const { content } = (await response.json<{ data: { content: string } }>()).data;
+    expect(content).toContain("- **[Whole Hog GT]");
+    expect(content).toContain("  - Signed up: Ken Edwards");
+    expect(content).not.toMatch(/<@\d*\w*>/);
+  });
+
   it("lists every /bcp command privately", async () => {
     const { keys, interactionEnv } = await setup();
     const response = await send(keys, interactionEnv, {

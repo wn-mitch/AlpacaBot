@@ -186,7 +186,7 @@ async function unclaim(env: Env, interaction: Interaction, sub: Option): Promise
 
 async function events(env: Env): Promise<Response> {
   const { results } = await env.DB.prepare(
-    `SELECT e.bcp_id, e.name, e.starts_at, group_concat(c.discord_user_id) AS members
+    `SELECT e.bcp_id, e.name, e.starts_at, group_concat(c.bcp_name, '|') AS members
      FROM bcp_events e
      LEFT JOIN bcp_roster r ON r.event_id = e.bcp_id
      LEFT JOIN bcp_claims c ON c.bcp_user_id = r.bcp_user_id
@@ -195,10 +195,11 @@ async function events(env: Env): Promise<Response> {
   if (results.length === 0) return reply("No upcoming BCP events on the SCD calendar.");
   const lines = results.map((row) => {
     const when = `<t:${Math.floor(Date.parse(row.starts_at) / 1000)}:D>`;
-    const members = row.members ? row.members.split(",").map((id) => `<@${id}>`).join(", ") : "no claimed members yet";
-    return `**[${discordText(row.name)}](<${bcpEventUrl(row.bcp_id)}>)** · ${when}\nSigned up: ${members}`;
+    // Names, not mentions, so listing events never pings anyone.
+    const members = row.members ? row.members.split("|").sort().map(discordText).join(", ") : "no claimed members yet";
+    return `- **[${discordText(row.name)}](<${bcpEventUrl(row.bcp_id)}>)** · ${when}\n  - Signed up: ${members}`;
   });
-  return reply(`**Upcoming SCD events**\nRegister on BCP, then use \`/bcp claim\` once so the bot knows you.\n\n${lines.join("\n\n")}`.slice(0, 2_000));
+  return reply(`**Upcoming SCD events**\nRegister on BCP, then use \`/bcp claim\` once so the bot knows you.\n\n${lines.join("\n")}`.slice(0, 2_000));
 }
 
 async function track(env: Env, interaction: Interaction, sub: Option, ctx: ExecutionContext): Promise<Response> {
