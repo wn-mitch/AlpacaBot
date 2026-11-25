@@ -6,11 +6,11 @@ import type { FactionStanding, Standing } from "./bcp";
 import type { Env } from "./events";
 
 // Bump when a layout changes so cached images are redrawn.
-const layoutVersion = 4;
+const layoutVersion = 5;
 const rowHeight = 34;
 const top = 96;
 const medals = ["#f0b232", "#c0c6cf", "#d08a4f"];
-// How many members the faction leaderboard shows.
+// How many members each faction card shows.
 export const factionLeaderCount = 3;
 
 interface Column {
@@ -86,25 +86,38 @@ export function circuitSvg(season: string, standings: readonly Standing[]): stri
   return tableSvg(1200, `SCD Circuit ${season}`, `${standings.length} members · best 4 events count`, columns, rows);
 }
 
-export function factionSvg(season: string, faction: string, standings: readonly FactionStanding[]): string {
-  const columns: Column[] = [
-    { title: "#", x: 24, anchor: "start" },
-    { title: "Name", x: 72, anchor: "start", bold: true },
-    { title: "Pts", x: 400, anchor: "end", bold: true },
-    { title: "Events", x: 480, anchor: "end" },
-    { title: "Record", x: 580, anchor: "end" },
-    { title: "Best event", x: 610, anchor: "start" },
-  ];
-  const rows = standings.slice(0, factionLeaderCount).map((row, index) => [
-    String(index + 1),
-    clip(row.name, 26),
-    row.points.toFixed(1),
-    String(row.events),
-    row.record,
-    bestEvent(row),
-  ]);
-  const players = `${standings.length} SCD player${standings.length === 1 ? "" : "s"}`;
-  return tableSvg(1060, `${clip(faction, 28)} · ${season}`, `${players} · best 4 events count`, columns, rows);
+// One card per faction with its top members, three cards to a row.
+export function factionsSvg(season: string, factions: readonly (readonly [string, readonly FactionStanding[]])[]): string {
+  const perRow = 3, cardWidth = 384, gap = 16, margin = 24, line = 30;
+  const cardHeight = 44 + factionLeaderCount * line + 10;
+  const width = margin * 2 + perRow * cardWidth + (perRow - 1) * gap;
+  const height = 80 + Math.ceil(factions.length / perRow) * (cardHeight + gap) + margin - gap;
+  const text = (x: number, y: number, anchor: string, value: string, style: string) =>
+    `<text x="${x}" y="${y}" text-anchor="${anchor}" ${style}>${escape(value)}</text>`;
+  const cards = factions.map(([faction, standings], index) => {
+    const x = margin + (index % perRow) * (cardWidth + gap);
+    const y = 80 + Math.floor(index / perRow) * (cardHeight + gap);
+    const players = `${standings.length} player${standings.length === 1 ? "" : "s"}`;
+    const rows = standings.slice(0, factionLeaderCount).map((row, rank) => {
+      const baseline = y + 44 + rank * line + 20;
+      return (
+        text(x + 16, baseline, "start", String(rank + 1), `fill="${medals[rank]}" font-size="15" font-weight="700"`) +
+        text(x + 40, baseline, "start", clip(row.name, 24), `fill="#f2f3f5" font-size="15"`) +
+        text(x + cardWidth - 64, baseline, "end", row.points.toFixed(1), `fill="#f2f3f5" font-size="15" font-weight="700"`) +
+        text(x + cardWidth - 16, baseline, "end", `${row.events} ev`, `fill="#949ba4" font-size="13"`)
+      );
+    });
+    return `<rect x="${x}" y="${y}" width="${cardWidth}" height="${cardHeight}" rx="8" fill="#2b2d31"/>
+${text(x + 16, y + 30, "start", clip(faction, 28), `fill="#f2f3f5" font-size="17" font-weight="700"`)}
+${text(x + cardWidth - 16, y + 30, "end", players, `fill="#949ba4" font-size="13"`)}
+${rows.join("")}`;
+  });
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" font-family="Inter">
+<rect width="100%" height="100%" fill="#1e1f22"/>
+${text(margin, 48, "start", `SCD Circuit ${season} · Top ${factionLeaderCount} by faction`, `fill="#f2f3f5" font-size="26" font-weight="700"`)}
+${text(width - margin, 48, "end", "best 4 events with the faction count", `fill="#949ba4" font-size="14"`)}
+${cards.join("\n")}
+</svg>`;
 }
 
 async function renderPng(svg: string): Promise<Uint8Array> {
@@ -136,6 +149,8 @@ async function cachedPng(env: Env, key: string, rows: unknown, svg: () => string
 export const circuitPng = (env: Env, season: string, standings: readonly Standing[]) =>
   cachedPng(env, season, standings, () => circuitSvg(season, standings));
 
-// Keyed by season and faction, so each faction keeps its own latest image.
-export const factionPng = (env: Env, season: string, faction: string, standings: readonly FactionStanding[]) =>
-  cachedPng(env, `${season}:${faction}`, [faction, standings], () => factionSvg(season, faction, standings));
+// Only the rows the image shows go into its cache key.
+export function factionsPng(env: Env, season: string, factions: readonly (readonly [string, readonly FactionStanding[]])[]) {
+  const shown = factions.map(([faction, standings]) => [faction, standings.length, standings.slice(0, factionLeaderCount)]);
+  return cachedPng(env, `${season}:factions`, shown, () => factionsSvg(season, factions));
+}

@@ -1,7 +1,7 @@
 import { bcpEventIds, bcpEventUrl, circuitHeader, circuitSeason, countedEvents, discordText, fetchArmyList, fetchEvent, listSections } from "./bcp";
 import { bcpAccessToken } from "./bcp-auth";
 import { circuitStandings, factionStandings, trackEvent } from "./bcp-bot";
-import { circuitPng, factionLeaderCount, factionPng } from "./circuit-image";
+import { circuitPng, factionLeaderCount, factionsPng } from "./circuit-image";
 import { commands } from "./commands";
 import type { Env } from "./events";
 
@@ -321,21 +321,15 @@ async function circuit(env: Env, interaction: Interaction, sub: Option, ctx: Exe
   return Response.json({ type: 5 });
 }
 
-async function factionLeaders(env: Env, interaction: Interaction, sub: Option, ctx: ExecutionContext): Promise<Response> {
-  const typed = String(option(sub.options, "faction")?.value ?? "").trim();
+async function factions(env: Env, interaction: Interaction, sub: Option, ctx: ExecutionContext): Promise<Response> {
   const season = String(option(sub.options, "season")?.value ?? circuitSeason(new Date().toISOString()));
   ctx.waitUntil(
     (async () => {
-      // BCP's spelling, whatever case the member typed.
-      const stored = await env.DB.prepare("SELECT faction FROM bcp_results WHERE faction = ? COLLATE NOCASE LIMIT 1").bind(typed).first<{ faction: string }>();
-      const name = stored?.faction ?? typed;
-      const standings = await factionStandings(env, name, season);
-      if (standings.length === 0) {
-        return followUp(interaction, `No SCD members have played ${discordText(name)} at a scored event in ${season}.`);
-      }
-      const content = `**Top ${discordText(name)} · SCD Circuit ${season}**\nTop ${factionLeaderCount} SCD members by their best ${countedEvents} ${discordText(name)} events. \`/bcp faction\` shows your own.`;
-      const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
-      await imageReply(interaction, content, await factionPng(env, season, name, standings), `scd-${slug}-${season}.png`);
+      const standings = await factionStandings(env, season);
+      const header = `**SCD Circuit ${season} · Top ${factionLeaderCount} by faction**`;
+      if (standings.length === 0) return followUp(interaction, `${header}\n\nNo claimed results yet.`);
+      const content = `${header}\nRanked by each member's best ${countedEvents} events with the faction. \`/bcp faction\` shows your own.`;
+      await imageReply(interaction, content, await factionsPng(env, season, standings), `scd-factions-${season}.png`);
     })().catch((error) => followUp(interaction, `Couldn't draw the faction table: ${String(error).slice(0, 200)}`)),
   );
   return Response.json({ type: 5 });
@@ -343,7 +337,7 @@ async function factionLeaders(env: Env, interaction: Interaction, sub: Option, c
 
 // Commands anyone can run before claiming, and commands that post publicly.
 const claimFree = new Set(["claim", "unclaim", "help"]);
-const publicCommands = new Set(["events", "list", "circuit", "faction-leaders"]);
+const publicCommands = new Set(["events", "list", "circuit", "factions"]);
 
 export async function handleInteraction(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
   const body = await request.text();
@@ -356,7 +350,7 @@ export async function handleInteraction(request: Request, env: Env, ctx: Executi
   if (!sub) return reply("Unknown command.", ephemeral);
   if (interaction.type === 4 && sub.name === "claim") return autocomplete(env, sub);
   if (interaction.type === 4 && sub.name === "list") return listAutocomplete(env, sub);
-  if (interaction.type === 4 && (sub.name === "faction" || sub.name === "faction-leaders")) return factionAutocomplete(env, sub);
+  if (interaction.type === 4 && sub.name === "faction") return factionAutocomplete(env, sub);
   if (interaction.type !== 2) return new Response(null, { status: 400 });
   if (!claimFree.has(sub.name)) {
     const claimed = await env.DB.prepare("SELECT 1 FROM bcp_claims WHERE discord_user_id = ?").bind(userId(interaction)).first();
@@ -375,7 +369,7 @@ export async function handleInteraction(request: Request, env: Env, ctx: Executi
     case "help": return help();
     case "profile": return profile(env, interaction, sub);
     case "faction": return faction(env, interaction, sub);
-    case "faction-leaders": return factionLeaders(env, interaction, sub, ctx);
+    case "factions": return factions(env, interaction, sub, ctx);
     default: return reply("Unknown command.", ephemeral);
   }
 }

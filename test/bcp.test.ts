@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { circuitPoints, circuitSeason, listSections } from "../src/bcp";
 import { bcpAccessToken } from "../src/bcp-auth";
 import { circuitStandings, factionStandings, runBcp } from "../src/bcp-bot";
-import { factionSvg } from "../src/circuit-image";
+import { factionsSvg } from "../src/circuit-image";
 import type { Env } from "../src/events";
 import { handleInteraction } from "../src/interactions";
 
@@ -414,7 +414,7 @@ describe("/bcp interactions", () => {
     expect(data.content).not.toMatch(/Event [CD]/);
   });
 
-  it("posts the top three SCD players of a faction as a public image", async () => {
+  it("posts the top three SCD players of every faction as one public image", async () => {
     const { keys, interactionEnv } = await setup();
     for (const [id, name] of [["ken", "Ken Edwards"], ["max", "Max Power"], ["sam", "Sam Young"], ["jo", "Jo Last"]]) {
       await seedClaim(`discord-${id}`, id, name);
@@ -423,24 +423,25 @@ describe("/bcp interactions", () => {
     const res = env.DB.prepare("INSERT INTO bcp_results VALUES (?, ?, 'x', ?, ?, ?, ?, ?)");
     await env.DB.batch([
       ...["A", "B", "C"].map((id) => ev.bind(id, `Event ${id}`)),
-      // Ken: two Necrons events (60 + 30 = 90, 4-2-0); his 99-point Orks win and last season don't count.
+      // Ken: two Necrons events (60 + 30 = 90, 4-2-0) and an Orks win scored separately.
       res.bind("A", "ken", "Necrons", 2, "2-1-0", 60, "2026-27"), res.bind("B", "ken", "Necrons", 3, "2-1-0", 30, "2026-27"),
-      res.bind("C", "ken", "Orks", 1, "3-0-0", 99, "2026-27"), res.bind("C", "max", "Necrons", 2, "2-1-0", 999, "2025-26"),
+      res.bind("C", "ken", "Orks", 1, "3-0-0", 99, "2026-27"),
+      // Last season and faction-less results are left out.
+      res.bind("C", "max", "Necrons", 2, "2-1-0", 999, "2025-26"), res.bind("C", "sam", null, 2, "2-1-0", 500, "2026-27"),
       res.bind("A", "max", "Necrons", 1, "3-0-0", 80, "2026-27"),
       res.bind("B", "sam", "Necrons", 1, "3-0-0", 85, "2026-27"),
       res.bind("A", "jo", "Necrons", 9, "0-3-0", 5, "2026-27"),
     ]);
-    const standings = await factionStandings(env as Env, "Necrons", "2026-27");
-    expect(standings.map((row) => [row.name, row.points, row.events, row.record, row.bestEvent])).toEqual([
-      ["Ken Edwards", 90, 2, "4-2-0", "Event A"],
-      ["Sam Young", 85, 1, "3-0-0", "Event B"],
-      ["Max Power", 80, 1, "3-0-0", "Event A"],
-      ["Jo Last", 5, 1, "0-3-0", "Event A"],
+    const standings = await factionStandings(env as Env, "2026-27");
+    expect(standings.map(([faction, rows]) => [faction, rows.map((row) => [row.name, row.points, row.events, row.record])])).toEqual([
+      ["Necrons", [["Ken Edwards", 90, 2, "4-2-0"], ["Sam Young", 85, 1, "3-0-0"], ["Max Power", 80, 1, "3-0-0"], ["Jo Last", 5, 1, "0-3-0"]]],
+      ["Orks", [["Ken Edwards", 99, 1, "3-0-0"]]],
     ]);
-    const svg = factionSvg("2026-27", "Necrons", standings);
+    const svg = factionsSvg("2026-27", standings);
     expect(svg).toContain("Max Power");
     expect(svg).not.toContain("Jo Last");
-    expect(svg).toContain("4 SCD players");
+    expect(svg).toContain("4 players");
+    expect(svg).toContain("1 player<");
 
     const patches: FormData[] = [];
     vi.stubGlobal("fetch", vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
@@ -449,16 +450,15 @@ describe("/bcp interactions", () => {
     }));
     const response = await send(keys, interactionEnv, {
       type: 2, token: "t", application_id: "app", channel_id: "event-discussion", member: { user: { id: "discord-jo" }, permissions: "0" },
-      data: { name: "bcp", options: [{ name: "faction-leaders", options: [{ name: "faction", value: "necrons" }] }] },
+      data: { name: "bcp", options: [{ name: "factions" }] },
     });
     vi.unstubAllGlobals();
 
-    // Public (not ephemeral), with BCP's spelling of the faction.
     expect(await response.json()).toEqual({ type: 5 });
-    expect(JSON.parse(String(patches[0].get("payload_json"))).content).toContain("**Top Necrons · SCD Circuit 2026-27**");
+    expect(JSON.parse(String(patches[0].get("payload_json"))).content).toContain("**SCD Circuit 2026-27 · Top 3 by faction**");
     const png = new Uint8Array(await (patches[0].get("files[0]") as Blob).arrayBuffer());
     expect(String.fromCharCode(...png.slice(1, 4))).toBe("PNG");
-    expect(await env.DB.prepare("SELECT season FROM bcp_circuit_images").all()).toMatchObject({ results: [{ season: "2026-27:Necrons" }] });
+    expect(await env.DB.prepare("SELECT season FROM bcp_circuit_images").all()).toMatchObject({ results: [{ season: "2026-27:factions" }] });
   });
 
   it("lists every /bcp command privately", async () => {

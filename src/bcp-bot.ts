@@ -164,20 +164,23 @@ export async function circuitStandings(env: Env, season: string): Promise<Standi
     .sort((left, right) => right.points - left.points || left.name.localeCompare(right.name));
 }
 
-// Members ranked by their best four events with one faction, the same way as the circuit.
-export async function factionStandings(env: Env, faction: string, season: string): Promise<FactionStanding[]> {
+// For every faction, members ranked by their best four events with it, the same way
+// as the circuit. Factions are in alphabetical order.
+export async function factionStandings(env: Env, season: string): Promise<[string, FactionStanding[]][]> {
   const { results } = await env.DB.prepare(
-    `SELECT c.discord_user_id, c.bcp_name, r.points, r.placing, r.record, e.name AS event,
+    `SELECT c.discord_user_id, c.bcp_name, r.faction, r.points, r.placing, r.record, e.name AS event,
        (SELECT count(*) FROM bcp_results x WHERE x.event_id = r.event_id) AS field
      FROM bcp_claims c
      JOIN bcp_results r ON r.bcp_user_id = c.bcp_user_id
      JOIN bcp_events e ON e.bcp_id = r.event_id
-     WHERE r.faction = ? COLLATE NOCASE AND r.season = ? ORDER BY r.points DESC`,
+     WHERE r.faction IS NOT NULL AND r.season = ? ORDER BY r.points DESC`,
   )
-    .bind(faction, season)
-    .all<{ discord_user_id: string; bcp_name: string; points: number; placing: number; record: string; event: string; field: number }>();
-  const byMember = new Map<string, FactionStanding & { games: number[] }>();
+    .bind(season)
+    .all<{ discord_user_id: string; bcp_name: string; faction: string; points: number; placing: number; record: string; event: string; field: number }>();
+  const byFaction = new Map<string, Map<string, FactionStanding & { games: number[] }>>();
   for (const row of results) {
+    const byMember = byFaction.get(row.faction) ?? new Map();
+    byFaction.set(row.faction, byMember);
     // Rows arrive highest-scoring first, so the first row is the best event.
     const standing = byMember.get(row.discord_user_id) ?? {
       name: row.bcp_name, points: 0, events: 0, record: "", games: [0, 0, 0],
@@ -188,9 +191,14 @@ export async function factionStandings(env: Env, faction: string, season: string
     row.record.split("-").forEach((count, index) => (standing.games[index] += Number(count) || 0));
     byMember.set(row.discord_user_id, standing);
   }
-  return [...byMember.values()]
-    .map(({ games, ...standing }) => ({ ...standing, points: Math.round(standing.points * 10) / 10, record: games.join("-") }))
-    .sort((left, right) => right.points - left.points || left.name.localeCompare(right.name));
+  return [...byFaction.entries()]
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([faction, byMember]) => [
+      faction,
+      [...byMember.values()]
+        .map(({ games, ...standing }) => ({ ...standing, points: Math.round(standing.points * 10) / 10, record: games.join("-") }))
+        .sort((left, right) => right.points - left.points || left.name.localeCompare(right.name)),
+    ]);
 }
 
 async function finalize(env: Env, fetcher: typeof fetch, event: BcpEvent): Promise<void> {
