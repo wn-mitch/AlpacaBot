@@ -6,7 +6,7 @@ import type { FactionStanding, Standing } from "./bcp";
 import type { Env } from "./events";
 
 // Bump when a layout changes so cached images are redrawn.
-const layoutVersion = 5;
+const layoutVersion = 6;
 const rowHeight = 34;
 const top = 96;
 const medals = ["#f0b232", "#c0c6cf", "#d08a4f"];
@@ -115,7 +115,7 @@ ${rows.join("")}`;
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" font-family="Inter">
 <rect width="100%" height="100%" fill="#1e1f22"/>
 ${text(margin, 48, "start", `SCD Circuit ${season} · Top ${factionLeaderCount} by faction`, `fill="#f2f3f5" font-size="26" font-weight="700"`)}
-${text(width - margin, 48, "end", "best 4 events with the faction count", `fill="#949ba4" font-size="14"`)}
+${text(width - margin, 48, "end", "best 4 events with the faction count · Space Marines include all chapters", `fill="#949ba4" font-size="14"`)}
 ${cards.join("\n")}
 </svg>`;
 }

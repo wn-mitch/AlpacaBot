@@ -164,6 +164,11 @@ export async function circuitStandings(env: Env, season: string): Promise<Standi
     .sort((left, right) => right.points - left.points || left.name.localeCompare(right.name));
 }
 
+// Codex supplements BCP lists as their own factions; the faction board counts them as Space Marines.
+const spaceMarines = "Space Marines (Astartes)";
+const chapters = new Set(["Black Templars", "Blood Angels", "Dark Angels", "Deathwatch", "Space Wolves"]);
+const boardFaction = (faction: string) => (chapters.has(faction) ? spaceMarines : faction);
+
 // For every faction, members ranked by their best four events with it, the same way
 // as the circuit. Factions are in alphabetical order.
 export async function factionStandings(env: Env, season: string): Promise<[string, FactionStanding[]][]> {
@@ -179,8 +184,9 @@ export async function factionStandings(env: Env, season: string): Promise<[strin
     .all<{ discord_user_id: string; bcp_name: string; faction: string; points: number; placing: number; record: string; event: string; field: number }>();
   const byFaction = new Map<string, Map<string, FactionStanding & { games: number[] }>>();
   for (const row of results) {
-    const byMember = byFaction.get(row.faction) ?? new Map();
-    byFaction.set(row.faction, byMember);
+    const faction = boardFaction(row.faction);
+    const byMember = byFaction.get(faction) ?? new Map();
+    byFaction.set(faction, byMember);
     // Rows arrive highest-scoring first, so the first row is the best event.
     const standing = byMember.get(row.discord_user_id) ?? {
       name: row.bcp_name, points: 0, events: 0, record: "", games: [0, 0, 0],

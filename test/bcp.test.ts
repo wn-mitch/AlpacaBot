@@ -422,7 +422,7 @@ describe("/bcp interactions", () => {
     const ev = env.DB.prepare("INSERT INTO bcp_events (bcp_id, name, starts_at, status) VALUES (?, ?, '2026-09-01T00:00:00Z', 'final')");
     const res = env.DB.prepare("INSERT INTO bcp_results VALUES (?, ?, 'x', ?, ?, ?, ?, ?)");
     await env.DB.batch([
-      ...["A", "B", "C"].map((id) => ev.bind(id, `Event ${id}`)),
+      ...["A", "B", "C", "D"].map((id) => ev.bind(id, `Event ${id}`)),
       // Ken: two Necrons events (60 + 30 = 90, 4-2-0) and an Orks win scored separately.
       res.bind("A", "ken", "Necrons", 2, "2-1-0", 60, "2026-27"), res.bind("B", "ken", "Necrons", 3, "2-1-0", 30, "2026-27"),
       res.bind("C", "ken", "Orks", 1, "3-0-0", 99, "2026-27"),
@@ -431,15 +431,19 @@ describe("/bcp interactions", () => {
       res.bind("A", "max", "Necrons", 1, "3-0-0", 80, "2026-27"),
       res.bind("B", "sam", "Necrons", 1, "3-0-0", 85, "2026-27"),
       res.bind("A", "jo", "Necrons", 9, "0-3-0", 5, "2026-27"),
+      // Chapters count as Space Marines: Jo's Wolves and Dark Angels combine.
+      res.bind("B", "jo", "Space Wolves", 2, "2-1-0", 40, "2026-27"), res.bind("C", "jo", "Dark Angels", 3, "1-2-0", 20, "2026-27"),
+      res.bind("D", "max", "Space Marines (Astartes)", 4, "1-2-0", 10, "2026-27"),
     ]);
     const standings = await factionStandings(env as Env, "2026-27");
     expect(standings.map(([faction, rows]) => [faction, rows.map((row) => [row.name, row.points, row.events, row.record])])).toEqual([
       ["Necrons", [["Ken Edwards", 90, 2, "4-2-0"], ["Sam Young", 85, 1, "3-0-0"], ["Max Power", 80, 1, "3-0-0"], ["Jo Last", 5, 1, "0-3-0"]]],
       ["Orks", [["Ken Edwards", 99, 1, "3-0-0"]]],
+      ["Space Marines (Astartes)", [["Jo Last", 60, 2, "3-3-0"], ["Max Power", 10, 1, "1-2-0"]]],
     ]);
     const svg = factionsSvg("2026-27", standings);
     expect(svg).toContain("Max Power");
-    expect(svg).not.toContain("Jo Last");
+    expect(svg.match(/Jo Last/g)).toHaveLength(1);
     expect(svg).toContain("4 players");
     expect(svg).toContain("1 player<");
 
