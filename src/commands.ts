@@ -18,6 +18,13 @@ export const commands = [
         type: 1, name: "profile", description: "Your SCD Circuit events this season (only you see it)",
         options: [{ type: 3, name: "season", description: "Season, such as 2026-27" }],
       },
+      {
+        type: 1, name: "faction", description: "How you did with one faction this season (only you see it)",
+        options: [
+          { type: 3, name: "faction", description: "Faction, such as Necrons", required: true, autocomplete: true },
+          { type: 3, name: "season", description: "Season, such as 2026-27" },
+        ],
+      },
       { type: 1, name: "events", description: "Upcoming SCD calendar events and who's signed up" },
       {
         type: 1, name: "track", description: "Track a BCP event that isn't on the calendar (mods)",

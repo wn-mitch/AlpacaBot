@@ -386,6 +386,33 @@ describe("/bcp interactions", () => {
     expect(data.content).not.toContain("Event F");
   });
 
+  it("shows a member's season with one faction privately, ranked among SCD players of it", async () => {
+    const { keys, interactionEnv } = await setup();
+    await seedClaim("discord-ken", "ken", "Ken Edwards");
+    await seedClaim("discord-max", "max", "Max Power");
+    const ev = env.DB.prepare("INSERT INTO bcp_events (bcp_id, name, starts_at, status) VALUES (?, ?, '2026-09-01T00:00:00Z', 'final')");
+    const res = env.DB.prepare("INSERT INTO bcp_results VALUES (?, ?, 'x', ?, ?, ?, ?, ?)");
+    await env.DB.batch([
+      ...["A", "B", "C", "D"].map((id) => ev.bind(id, `Event ${id}`)),
+      // A: Ken is the top Necron (3rd) of two Necrons. B: Max's Necrons beat Ken's.
+      res.bind("A", "ken", "Necrons", 3, "2-1-0", 50, "2026-27"), res.bind("A", "y", "Necrons", 5, "1-2-0", 0, "2026-27"),
+      res.bind("B", "ken", "Necrons", 4, "1-2-0", 20, "2026-27"), res.bind("B", "max", "Necrons", 1, "3-0-0", 90, "2026-27"),
+      // Other factions and other seasons are left out.
+      res.bind("C", "ken", "Orks", 1, "3-0-0", 99, "2026-27"),
+      res.bind("D", "ken", "Necrons", 1, "3-0-0", 99, "2025-26"),
+    ]);
+    const response = await send(keys, interactionEnv, {
+      type: 2, token: "t", application_id: "app", channel_id: "general", member: { user: { id: "discord-ken" }, permissions: "0" },
+      data: { name: "bcp", options: [{ name: "faction", options: [{ name: "faction", value: "necrons" }] }] },
+    });
+    const { data } = await response.json<{ data: { content: string; flags: number } }>();
+    expect(data.flags).toBe(64);
+    expect(data.content).toContain("2 events · 3-3-0 · **70.0 pts** from your best 2 · #2 of 2 SCD Necrons players · best in faction 1×");
+    expect(data.content).toContain("[Event A](<https://www.bestcoastpairings.com/event/A>) · 3/2 · 2-1-0 · 50.0 pts · 🏅 best of 2");
+    expect(data.content).toMatch(/Event B.*20\.0 pts$/m);
+    expect(data.content).not.toMatch(/Event [CD]/);
+  });
+
   it("lists every /bcp command privately", async () => {
     const { keys, interactionEnv } = await setup();
     const response = await send(keys, interactionEnv, {

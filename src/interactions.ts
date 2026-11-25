@@ -88,6 +88,16 @@ async function listAutocomplete(env: Env, sub: Option): Promise<Response> {
   });
 }
 
+async function factionAutocomplete(env: Env, sub: Option): Promise<Response> {
+  const query = String(option(sub.options, "faction")?.value ?? "").trim();
+  const { results } = await env.DB.prepare(
+    `SELECT DISTINCT faction FROM bcp_results WHERE faction LIKE ?1 ESCAPE '\\' ORDER BY faction LIMIT 25`,
+  )
+    .bind(`%${query.replace(/[\\%_]/g, "\\$&")}%`)
+    .all<{ faction: string }>();
+  return Response.json({ type: 8, data: { choices: results.map((row) => ({ name: row.faction.slice(0, 100), value: row.faction })) } });
+}
+
 interface ListRow {
   name: string;
   list_id: string;
@@ -242,6 +252,49 @@ async function profile(env: Env, interaction: Interaction, sub: Option): Promise
   return reply(content.slice(0, 2_000), ephemeral);
 }
 
+async function faction(env: Env, interaction: Interaction, sub: Option): Promise<Response> {
+  const name = String(option(sub.options, "faction")?.value ?? "").trim();
+  const season = String(option(sub.options, "season")?.value ?? circuitSeason(new Date().toISOString()));
+  const { results } = await env.DB.prepare(
+    `SELECT c.discord_user_id, e.bcp_id, e.name, r.faction, r.placing, r.record, r.points,
+       (SELECT count(*) FROM bcp_results x WHERE x.event_id = r.event_id) AS field,
+       (SELECT count(*) FROM bcp_results x WHERE x.event_id = r.event_id AND x.faction = r.faction) AS same,
+       (SELECT min(placing) FROM bcp_results x WHERE x.event_id = r.event_id AND x.faction = r.faction) AS top
+     FROM bcp_claims c JOIN bcp_results r ON r.bcp_user_id = c.bcp_user_id
+     JOIN bcp_events e ON e.bcp_id = r.event_id
+     WHERE r.faction = ? COLLATE NOCASE AND r.season = ? ORDER BY r.points DESC, e.starts_at`,
+  )
+    .bind(name, season)
+    .all<{ discord_user_id: string; bcp_id: string; name: string; faction: string; placing: number; record: string; points: number; field: number; same: number; top: number }>();
+  const mine = results.filter((row) => row.discord_user_id === userId(interaction));
+  // BCP's spelling, whatever case the member typed.
+  const shown = discordText(mine[0]?.faction ?? name);
+  const header = `**Your ${shown} · SCD Circuit ${season}**`;
+  if (mine.length === 0) return reply(`${header}\nYou haven't played ${shown} at a scored event this season.`, ephemeral);
+
+  // Members ranked by their best four events with this faction, like the circuit.
+  const totals = new Map<string, number[]>();
+  for (const row of results) totals.set(row.discord_user_id, [...(totals.get(row.discord_user_id) ?? []), row.points]);
+  const best = (points: number[]) => points.slice(0, countedEvents).reduce((sum, value) => sum + value, 0);
+  const ranked = [...totals.entries()].map(([id, points]) => ({ id, total: best(points) })).sort((left, right) => right.total - left.total);
+  const rank = ranked.findIndex((row) => row.id === userId(interaction)) + 1;
+
+  const record = [0, 0, 0];
+  for (const row of mine) row.record.split("-").forEach((count, index) => (record[index] += Number(count) || 0));
+  const bif = mine.filter((row) => row.placing === row.top && row.same > 1).length;
+  const lines = mine.map((row) => {
+    const award = row.placing === row.top && row.same > 1 ? ` · 🏅 best of ${row.same}` : "";
+    return `- [${discordText(row.name)}](<${bcpEventUrl(row.bcp_id)}>) · ${row.placing}/${row.field} · ${row.record} · ${row.points.toFixed(1)} pts${award}`;
+  });
+  const summary = [
+    `${mine.length} event${mine.length === 1 ? "" : "s"} · ${record.join("-")}`,
+    `**${best(mine.map((row) => row.points)).toFixed(1)} pts** from your best ${Math.min(countedEvents, mine.length)}`,
+    `#${rank} of ${ranked.length} SCD ${shown} player${ranked.length === 1 ? "" : "s"}`,
+    ...(bif ? [`best in faction ${bif}×`] : []),
+  ].join(" · ");
+  return reply(`${header}\n${summary}\n\n${lines.join("\n")}`.slice(0, 2_000), ephemeral);
+}
+
 function help(): Response {
   const lines = commands[0].options.map((sub) => `\`/bcp ${sub.name}\` · ${sub.description}`);
   return reply(`**AlpacaBot BCP commands**\n${lines.join("\n")}\n\nStart with \`/bcp claim\` so your pairings and results show up in bold.`, ephemeral);
@@ -282,6 +335,7 @@ export async function handleInteraction(request: Request, env: Env, ctx: Executi
   if (!sub) return reply("Unknown command.", ephemeral);
   if (interaction.type === 4 && sub.name === "claim") return autocomplete(env, sub);
   if (interaction.type === 4 && sub.name === "list") return listAutocomplete(env, sub);
+  if (interaction.type === 4 && sub.name === "faction") return factionAutocomplete(env, sub);
   if (interaction.type !== 2) return new Response(null, { status: 400 });
   if (!claimFree.has(sub.name)) {
     const claimed = await env.DB.prepare("SELECT 1 FROM bcp_claims WHERE discord_user_id = ?").bind(userId(interaction)).first();
@@ -299,6 +353,7 @@ export async function handleInteraction(request: Request, env: Env, ctx: Executi
     case "list": return list(env, interaction, sub, ctx);
     case "help": return help();
     case "profile": return profile(env, interaction, sub);
+    case "faction": return faction(env, interaction, sub);
     default: return reply("Unknown command.", ephemeral);
   }
 }
