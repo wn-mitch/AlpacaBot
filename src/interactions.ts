@@ -1,7 +1,7 @@
 import { bcpEventIds, bcpEventUrl, circuitHeader, circuitSeason, countedEvents, discordText, fetchArmyList, fetchEvent, listSections } from "./bcp";
 import { bcpAccessToken } from "./bcp-auth";
-import { circuitStandings, trackEvent } from "./bcp-bot";
-import { circuitPng } from "./circuit-image";
+import { circuitStandings, factionStandings, trackEvent } from "./bcp-bot";
+import { circuitPng, factionLeaderCount, factionPng } from "./circuit-image";
 import { commands } from "./commands";
 import type { Env } from "./events";
 
@@ -300,29 +300,50 @@ function help(): Response {
   return reply(`**AlpacaBot BCP commands**\n${lines.join("\n")}\n\nStart with \`/bcp claim\` so your pairings and results show up in bold.`, ephemeral);
 }
 
+// Edits the deferred reply to carry a PNG.
+async function imageReply(interaction: Interaction, content: string, png: Uint8Array, filename: string): Promise<void> {
+  const form = new FormData();
+  form.set("payload_json", JSON.stringify({ content, attachments: [{ id: 0, filename }], allowed_mentions: { parse: [] } }));
+  form.set("files[0]", new Blob([png], { type: "image/png" }), filename);
+  const response = await fetch(`${discordApi}/webhooks/${interaction.application_id}/${interaction.token}/messages/@original`, { method: "PATCH", body: form });
+  if (!response.ok) throw new Error(`image reply failed with ${response.status}`);
+}
+
 async function circuit(env: Env, interaction: Interaction, sub: Option, ctx: ExecutionContext): Promise<Response> {
   const season = String(option(sub.options, "season")?.value ?? circuitSeason(new Date().toISOString()));
   ctx.waitUntil(
     (async () => {
       const standings = await circuitStandings(env, season);
       if (standings.length === 0) return followUp(interaction, `${circuitHeader(season)}\n\nNo claimed results yet.`);
-      const form = new FormData();
-      form.set("payload_json", JSON.stringify({
-        content: circuitHeader(season),
-        attachments: [{ id: 0, filename: `scd-circuit-${season}.png` }],
-        allowed_mentions: { parse: [] },
-      }));
-      form.set("files[0]", new Blob([await circuitPng(env, season, standings)], { type: "image/png" }), `scd-circuit-${season}.png`);
-      const response = await fetch(`${discordApi}/webhooks/${interaction.application_id}/${interaction.token}/messages/@original`, { method: "PATCH", body: form });
-      if (!response.ok) throw new Error(`circuit image reply failed with ${response.status}`);
+      await imageReply(interaction, circuitHeader(season), await circuitPng(env, season, standings), `scd-circuit-${season}.png`);
     })().catch((error) => followUp(interaction, `Couldn't draw the circuit table: ${String(error).slice(0, 200)}`)),
+  );
+  return Response.json({ type: 5 });
+}
+
+async function factionLeaders(env: Env, interaction: Interaction, sub: Option, ctx: ExecutionContext): Promise<Response> {
+  const typed = String(option(sub.options, "faction")?.value ?? "").trim();
+  const season = String(option(sub.options, "season")?.value ?? circuitSeason(new Date().toISOString()));
+  ctx.waitUntil(
+    (async () => {
+      // BCP's spelling, whatever case the member typed.
+      const stored = await env.DB.prepare("SELECT faction FROM bcp_results WHERE faction = ? COLLATE NOCASE LIMIT 1").bind(typed).first<{ faction: string }>();
+      const name = stored?.faction ?? typed;
+      const standings = await factionStandings(env, name, season);
+      if (standings.length === 0) {
+        return followUp(interaction, `No SCD members have played ${discordText(name)} at a scored event in ${season}.`);
+      }
+      const content = `**Top ${discordText(name)} · SCD Circuit ${season}**\nTop ${factionLeaderCount} SCD members by their best ${countedEvents} ${discordText(name)} events. \`/bcp faction\` shows your own.`;
+      const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+      await imageReply(interaction, content, await factionPng(env, season, name, standings), `scd-${slug}-${season}.png`);
+    })().catch((error) => followUp(interaction, `Couldn't draw the faction table: ${String(error).slice(0, 200)}`)),
   );
   return Response.json({ type: 5 });
 }
 
 // Commands anyone can run before claiming, and commands that post publicly.
 const claimFree = new Set(["claim", "unclaim", "help"]);
-const publicCommands = new Set(["events", "list", "circuit"]);
+const publicCommands = new Set(["events", "list", "circuit", "faction-leaders"]);
 
 export async function handleInteraction(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
   const body = await request.text();
@@ -335,7 +356,7 @@ export async function handleInteraction(request: Request, env: Env, ctx: Executi
   if (!sub) return reply("Unknown command.", ephemeral);
   if (interaction.type === 4 && sub.name === "claim") return autocomplete(env, sub);
   if (interaction.type === 4 && sub.name === "list") return listAutocomplete(env, sub);
-  if (interaction.type === 4 && sub.name === "faction") return factionAutocomplete(env, sub);
+  if (interaction.type === 4 && (sub.name === "faction" || sub.name === "faction-leaders")) return factionAutocomplete(env, sub);
   if (interaction.type !== 2) return new Response(null, { status: 400 });
   if (!claimFree.has(sub.name)) {
     const claimed = await env.DB.prepare("SELECT 1 FROM bcp_claims WHERE discord_user_id = ?").bind(userId(interaction)).first();
@@ -354,6 +375,7 @@ export async function handleInteraction(request: Request, env: Env, ctx: Executi
     case "help": return help();
     case "profile": return profile(env, interaction, sub);
     case "faction": return faction(env, interaction, sub);
+    case "faction-leaders": return factionLeaders(env, interaction, sub, ctx);
     default: return reply("Unknown command.", ephemeral);
   }
 }

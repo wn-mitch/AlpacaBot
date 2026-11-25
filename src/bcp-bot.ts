@@ -11,6 +11,7 @@ import {
   pairingsMessages,
   recordsFrom,
   type BcpEvent,
+  type FactionStanding,
   type Game,
   type ResultRow,
   type Standing,
@@ -160,6 +161,35 @@ export async function circuitStandings(env: Env, season: string): Promise<Standi
       for (const [name, count] of factions) if (!faction || count > factions.get(faction)!) faction = name;
       return { ...standing, points: Math.round(standing.points * 10) / 10, faction };
     })
+    .sort((left, right) => right.points - left.points || left.name.localeCompare(right.name));
+}
+
+// Members ranked by their best four events with one faction, the same way as the circuit.
+export async function factionStandings(env: Env, faction: string, season: string): Promise<FactionStanding[]> {
+  const { results } = await env.DB.prepare(
+    `SELECT c.discord_user_id, c.bcp_name, r.points, r.placing, r.record, e.name AS event,
+       (SELECT count(*) FROM bcp_results x WHERE x.event_id = r.event_id) AS field
+     FROM bcp_claims c
+     JOIN bcp_results r ON r.bcp_user_id = c.bcp_user_id
+     JOIN bcp_events e ON e.bcp_id = r.event_id
+     WHERE r.faction = ? COLLATE NOCASE AND r.season = ? ORDER BY r.points DESC`,
+  )
+    .bind(faction, season)
+    .all<{ discord_user_id: string; bcp_name: string; points: number; placing: number; record: string; event: string; field: number }>();
+  const byMember = new Map<string, FactionStanding & { games: number[] }>();
+  for (const row of results) {
+    // Rows arrive highest-scoring first, so the first row is the best event.
+    const standing = byMember.get(row.discord_user_id) ?? {
+      name: row.bcp_name, points: 0, events: 0, record: "", games: [0, 0, 0],
+      bestEvent: row.event, bestPlacing: row.placing, bestField: row.field,
+    };
+    if (standing.events < countedEvents) standing.points += row.points;
+    standing.events++;
+    row.record.split("-").forEach((count, index) => (standing.games[index] += Number(count) || 0));
+    byMember.set(row.discord_user_id, standing);
+  }
+  return [...byMember.values()]
+    .map(({ games, ...standing }) => ({ ...standing, points: Math.round(standing.points * 10) / 10, record: games.join("-") }))
     .sort((left, right) => right.points - left.points || left.name.localeCompare(right.name));
 }
 

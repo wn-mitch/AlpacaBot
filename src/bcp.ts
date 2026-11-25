@@ -299,5 +299,16 @@ export interface Standing {
   faction: string | null;
 }
 
+// One member's season with a single faction, for the faction leaderboard.
+export interface FactionStanding {
+  name: string;
+  points: number;
+  events: number;
+  record: string;
+  bestEvent: string;
+  bestPlacing: number;
+  bestField: number;
+}
+
 export const circuitHeader = (season: string) =>
   `**SCD Circuit ${season}**\nBest ${countedEvents} events count, team events excluded. Points = \`${circuitFormula}\`, where pct = (players you finished ahead of + 1) ÷ players.`;

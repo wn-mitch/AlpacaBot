@@ -25,6 +25,13 @@ export const commands = [
           { type: 3, name: "season", description: "Season, such as 2026-27" },
         ],
       },
+      {
+        type: 1, name: "faction-leaders", description: "Top 3 SCD players of a faction this season",
+        options: [
+          { type: 3, name: "faction", description: "Faction, such as Necrons", required: true, autocomplete: true },
+          { type: 3, name: "season", description: "Season, such as 2026-27" },
+        ],
+      },
       { type: 1, name: "events", description: "Upcoming SCD calendar events and who's signed up" },
       {
         type: 1, name: "track", description: "Track a BCP event that isn't on the calendar (mods)",
